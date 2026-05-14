@@ -4,6 +4,8 @@ Thanks for improving PromptForge.
 
 ## Development
 
+Install Python 3.12 first. The setup script supports pyenv/pyenv-win, the Windows Python Launcher (`py -3.12`), or a `python` command that already points to Python 3.12.x.
+
 Set up the project environment:
 
 ```powershell
