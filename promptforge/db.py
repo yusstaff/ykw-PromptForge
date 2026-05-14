@@ -409,3 +409,15 @@ class PromptForgeDB:
                 "SELECT * FROM recipes ORDER BY created_at DESC, id DESC"
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_recipe(self, recipe_id: int) -> Optional[dict]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM recipes WHERE id = ?",
+                (recipe_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_recipe(self, recipe_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))

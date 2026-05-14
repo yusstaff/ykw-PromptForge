@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
+import json
 import shutil
 import sys
 
@@ -164,6 +165,7 @@ class MainWindow(QMainWindow):
         self.refresh_categories()
         self.refresh_items()
         self.refresh_composer_items()
+        self.refresh_recipe_list()
 
     def _build_actions(self) -> None:
         file_menu = self.menuBar().addMenu("文件")
@@ -434,13 +436,42 @@ class MainWindow(QMainWindow):
         copy_negative_button = QPushButton("复制负面")
         copy_negative_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton))
         copy_negative_button.clicked.connect(self.copy_negative)
+        copy_all_button = QPushButton("复制全部")
+        copy_all_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton))
+        copy_all_button.clicked.connect(self.copy_all_prompts)
         save_recipe_button = QPushButton("保存组合")
         save_recipe_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
         save_recipe_button.clicked.connect(self.save_recipe)
         output_buttons.addWidget(copy_positive_button)
         output_buttons.addWidget(copy_negative_button)
+        output_buttons.addWidget(copy_all_button)
         output_buttons.addWidget(save_recipe_button)
         right_layout.addLayout(output_buttons)
+
+        saved_label = QLabel("已保存组合")
+        saved_label.setObjectName("sectionLabel")
+        right_layout.addWidget(saved_label)
+
+        self.recipe_list = QListWidget()
+        self.recipe_list.setMinimumHeight(120)
+        self.recipe_list.itemDoubleClicked.connect(self.load_recipe_item)
+        right_layout.addWidget(self.recipe_list, 1)
+
+        recipe_buttons = QHBoxLayout()
+        load_recipe_button = QPushButton("加载组合")
+        load_recipe_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
+        load_recipe_button.clicked.connect(self.load_selected_recipe)
+        delete_recipe_button = QPushButton("删除组合")
+        delete_recipe_button.setObjectName("dangerButton")
+        delete_recipe_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+        delete_recipe_button.clicked.connect(self.delete_selected_recipe)
+        refresh_recipe_button = QPushButton("刷新")
+        refresh_recipe_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        refresh_recipe_button.clicked.connect(self.refresh_recipe_list)
+        recipe_buttons.addWidget(load_recipe_button)
+        recipe_buttons.addWidget(delete_recipe_button)
+        recipe_buttons.addWidget(refresh_recipe_button)
+        right_layout.addLayout(recipe_buttons)
 
         refs_label = QLabel("已选参考图")
         refs_label.setObjectName("sectionLabel")
@@ -984,6 +1015,17 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(self.output_negative.toPlainText())
         self.statusBar().showMessage("负面提示词已复制。", 2500)
 
+    def copy_all_prompts(self) -> None:
+        positive = self.output_positive.toPlainText().strip()
+        negative = self.output_negative.toPlainText().strip()
+        sections = []
+        if positive:
+            sections.append(f"正向提示词：\n{positive}")
+        if negative:
+            sections.append(f"负面提示词：\n{negative}")
+        QApplication.clipboard().setText("\n\n".join(sections))
+        self.statusBar().showMessage("完整提示词已复制。", 2500)
+
     def save_recipe(self) -> None:
         if not self.output_positive.toPlainText().strip() and self.checked_item_ids:
             self.generate_prompt()
@@ -1004,7 +1046,83 @@ class MainWindow(QMainWindow):
             self.output_negative.toPlainText(),
             sorted(self.checked_item_ids),
         )
+        self.refresh_recipe_list()
         self.statusBar().showMessage("组合已保存到数据库。", 2500)
+
+    def refresh_recipe_list(self) -> None:
+        if not hasattr(self, "recipe_list"):
+            return
+        selected_id = self.selected_recipe_id()
+        self.recipe_list.clear()
+        for recipe in self.db.list_recipes():
+            title = recipe["title"]
+            created_at = recipe["created_at"]
+            item = QListWidgetItem(f"{title}\n{created_at}")
+            item.setData(USER_ROLE, recipe["id"])
+            item.setToolTip(compact_text(recipe["positive_prompt"]))
+            self.recipe_list.addItem(item)
+            if selected_id == recipe["id"]:
+                self.recipe_list.setCurrentItem(item)
+
+    def selected_recipe_id(self):
+        if not hasattr(self, "recipe_list"):
+            return None
+        item = self.recipe_list.currentItem()
+        return item.data(USER_ROLE) if item else None
+
+    def load_recipe_item(self, item: QListWidgetItem) -> None:
+        if item:
+            self.load_recipe(item.data(USER_ROLE))
+
+    def load_selected_recipe(self) -> None:
+        recipe_id = self.selected_recipe_id()
+        if recipe_id is None:
+            QMessageBox.information(self, "加载组合", "请先选择一个已保存组合。")
+            return
+        self.load_recipe(recipe_id)
+
+    def load_recipe(self, recipe_id: int) -> None:
+        recipe = self.db.get_recipe(recipe_id)
+        if not recipe:
+            QMessageBox.warning(self, "加载组合", "这个组合不存在，可能已经被删除。")
+            self.refresh_recipe_list()
+            return
+
+        self.output_positive.setPlainText(recipe["positive_prompt"])
+        self.output_negative.setPlainText(recipe["negative_prompt"])
+        try:
+            item_ids = json.loads(recipe["item_ids_json"] or "[]")
+        except json.JSONDecodeError:
+            item_ids = []
+        existing_ids = {row["id"] for row in self.db.list_items()}
+        self.checked_item_ids = {
+            int(item_id)
+            for item_id in item_ids
+            if isinstance(item_id, int) and item_id in existing_ids
+        }
+        self.refresh_composer_items()
+        self.statusBar().showMessage("已加载保存的组合。", 2500)
+
+    def delete_selected_recipe(self) -> None:
+        recipe_id = self.selected_recipe_id()
+        if recipe_id is None:
+            QMessageBox.information(self, "删除组合", "请先选择一个已保存组合。")
+            return
+        recipe = self.db.get_recipe(recipe_id)
+        if not recipe:
+            self.refresh_recipe_list()
+            return
+        reply = QMessageBox.question(
+            self,
+            "删除组合",
+            f"确定删除组合“{recipe['title']}”吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self.db.delete_recipe(recipe_id)
+        self.refresh_recipe_list()
+        self.statusBar().showMessage("已删除保存的组合。", 2500)
 
     def open_data_dir(self) -> None:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.data_dir)))
