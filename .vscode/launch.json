@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "PromptForge",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "promptforge",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

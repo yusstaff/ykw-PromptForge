@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Application runtime data
+data/
+PromptForgeData/
+*.db
+*.db-*
+
+# Build artifacts
+build/
+dist/
+*.spec
+*.exe
+
+# Logs and local env
+*.log
+.env
+.env.*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
