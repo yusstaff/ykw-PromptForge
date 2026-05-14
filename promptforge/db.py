@@ -20,7 +20,7 @@ DEFAULT_CATEGORIES = [
 SYSTEM_CATEGORY_NAMES = [
     "Character",
     "BodyStyle",
-    "Face",
+    "FacialFeatures",
     "HairColor",
     "Hairstyle",
     "HairAccessory",
@@ -120,6 +120,7 @@ class PromptForgeDB:
 
     def _ensure_system_categories(self, conn: sqlite3.Connection) -> None:
         stamp = now_text()
+        self._migrate_system_category_aliases(conn)
         existing = {
             row["name"]: row["id"]
             for row in conn.execute("SELECT id, name FROM categories").fetchall()
@@ -146,6 +147,35 @@ class PromptForgeDB:
             """.format(",".join("?" for _ in SYSTEM_CATEGORY_NAMES)),
             SYSTEM_CATEGORY_NAMES,
         )
+
+    def _migrate_system_category_aliases(self, conn: sqlite3.Connection) -> None:
+        aliases = {
+            "Face": "FacialFeatures",
+        }
+        for old_name, new_name in aliases.items():
+            old_row = conn.execute(
+                "SELECT id FROM categories WHERE name = ?",
+                (old_name,),
+            ).fetchone()
+            if not old_row:
+                continue
+
+            new_row = conn.execute(
+                "SELECT id FROM categories WHERE name = ?",
+                (new_name,),
+            ).fetchone()
+            if not new_row:
+                conn.execute(
+                    "UPDATE categories SET name = ? WHERE id = ?",
+                    (new_name, old_row["id"]),
+                )
+                continue
+
+            conn.execute(
+                "UPDATE prompt_items SET category_id = ? WHERE category_id = ?",
+                (new_row["id"], old_row["id"]),
+            )
+            conn.execute("DELETE FROM categories WHERE id = ?", (old_row["id"],))
 
     def list_categories(self) -> List[dict]:
         with self.connect() as conn:
